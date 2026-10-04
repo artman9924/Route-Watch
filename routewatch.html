@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RouteWatch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg:#12141c;
+    --surface:#1b1f2c;
+    --surface-2:#242a3b;
+    --line:#323a52;
+    --text:#f3f1ea;
+    --muted:#8891a8;
+    --amber:#e8a33d;
+    --amber-dim:#3a2f1c;
+    --good:#4fd1c5;
+    --bad:#f0765c;
+    --radius:14px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; min-height:100vh; padding-bottom:84px;}
+  .mono{font-family:'JetBrains Mono', monospace;}
+  #app{max-width:480px; margin:0 auto; padding:20px 16px 8px;}
+
+  header{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px;}
+  header .brand{display:flex; align-items:center; gap:9px;}
+  header .dot{width:10px; height:10px; border-radius:50%; background:var(--amber); box-shadow:0 0 0 4px var(--amber-dim);}
+  header h1{font-size:19px; margin:0; font-weight:800; letter-spacing:0.2px;}
+  header .sub{font-size:11px; color:var(--muted); margin-top:2px; font-family:'JetBrains Mono',monospace; letter-spacing:0.5px; text-transform:uppercase;}
+
+  .view{display:none;}
+  .view.active{display:block;}
+
+  .route-row{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 14px; scrollbar-width:none;}
+  .route-row::-webkit-scrollbar{display:none;}
+  .chip{flex:0 0 auto; padding:9px 14px; border-radius:999px; background:var(--surface); border:1px solid var(--line); color:var(--muted); font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:7px; transition:border-color .15s, color .15s;}
+  .chip .swatch{width:8px; height:8px; border-radius:50%;}
+  .chip.selected{border-color:currentColor; color:var(--text); background:var(--surface-2);}
+  .chip.add{color:var(--muted); border-style:dashed;}
+
+  .timer-card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:26px 20px 22px; text-align:center; position:relative; overflow:hidden;}
+  .timer-card.recording{border-color:var(--amber);}
+  .timer-card .route-label{font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; font-weight:600;}
+  .timer-display{font-size:52px; font-weight:600; margin:10px 0 4px; letter-spacing:1px; font-variant-numeric:tabular-nums;}
+  .timer-status{font-size:12px; color:var(--muted); min-height:16px;}
+  .timer-status.live{color:var(--amber); display:flex; align-items:center; justify-content:center; gap:6px;}
+  .pulse{width:7px; height:7px; border-radius:50%; background:var(--amber); animation:pulse 1.4s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.25;}}
+
+  .gapbar-wrap{margin-top:18px; text-align:left;}
+  .gapbar-labels{display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-bottom:6px; font-family:'JetBrains Mono',monospace;}
+  .gapbar{position:relative; height:8px; background:var(--surface-2); border-radius:999px; overflow:hidden;}
+  .gapbar-fill{position:absolute; left:0; top:0; height:100%; border-radius:999px; background:var(--good); transition:width .3s linear, background .3s;}
+  .gap-readout{margin-top:8px; font-size:13px; font-weight:600; font-family:'JetBrains Mono',monospace;}
+  .gap-readout.ahead{color:var(--good);}
+  .gap-readout.behind{color:var(--bad);}
+
+  .btn-row{display:flex; gap:10px; margin-top:22px;}
+  button{font-family:'Inter',sans-serif; border:none; cursor:pointer;}
+  .btn{flex:1; padding:14px; border-radius:11px; font-size:15px; font-weight:700; transition:opacity .15s, transform .1s;}
+  .btn:active{transform:scale(0.97);}
+  .btn-start{background:var(--amber); color:#1a1408;}
+  .btn-stop{background:var(--bad); color:#2a0f08;}
+  .btn-save{background:var(--good); color:#082a26;}
+  .btn-ghost{background:transparent; border:1px solid var(--line); color:var(--muted); flex:0 0 auto; padding:14px 16px;}
+  .btn[disabled]{opacity:.35; pointer-events:none;}
+
+  .note-input{width:100%; margin-top:14px; padding:11px 13px; border-radius:10px; background:var(--surface-2); border:1px solid var(--line); color:var(--text); font-size:13px; font-family:'Inter',sans-serif;}
+  .note-input::placeholder{color:var(--muted);}
+
+  /* map */
+  .map-card{margin-top:14px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line); background:var(--surface);}
+  .map-card .map-card-label{display:flex; justify-content:space-between; align-items:center; padding:10px 14px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; font-weight:700;}
+  .map-card .map-card-label span.dist{color:var(--text); font-family:'JetBrains Mono',monospace; text-transform:none; letter-spacing:0;}
+  #track-map{height:170px; width:100%; background:var(--surface-2);}
+  #full-map{height:340px; width:100%; background:var(--surface-2);}
+  .leaflet-container{background:var(--surface-2); font-family:'Inter',sans-serif;}
+  #track-map .leaflet-tile-pane, #full-map .leaflet-tile-pane{ filter: invert(92%) hue-rotate(180deg) brightness(0.92) contrast(0.95) saturate(0.55); }
+  .leaflet-control-attribution{background:rgba(18,20,28,.75) !important; color:var(--muted) !important; font-size:9px !important;}
+  .leaflet-control-attribution a{color:var(--muted) !important;}
+  .leaflet-control-zoom a{background:var(--surface) !important; color:var(--text) !important; border-color:var(--line) !important;}
+  .leaflet-popup-content-wrapper{background:var(--surface-2); color:var(--text); border-radius:10px;}
+  .leaflet-popup-tip{background:var(--surface-2);}
+  .map-empty{display:flex; align-items:center; justify-content:center; height:100%; color:var(--muted); font-size:12px; text-align:center; padding:20px;}
+
+  /* callout */
+  .callout{background:linear-gradient(135deg, var(--surface-2), var(--surface)); border:1px solid var(--line); border-radius:var(--radius); padding:16px; margin-bottom:16px;}
+  .callout .k{font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); font-weight:700;}
+  .callout .v{font-size:20px; font-weight:800; margin-top:4px; display:flex; align-items:center; gap:8px;}
+  .callout .v .swatch{width:10px; height:10px; border-radius:50%;}
+  .callout .d{font-size:12px; color:var(--muted); margin-top:3px;}
+
+  .route-card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); margin-bottom:12px; overflow:hidden;}
+  .route-card-head{display:flex; align-items:center; justify-content:space-between; padding:14px 16px; cursor:pointer;}
+  .route-card-title{display:flex; align-items:center; gap:9px; font-weight:700; font-size:15px;}
+  .route-card-title .swatch{width:10px; height:10px; border-radius:50%; flex:0 0 auto;}
+  .route-card-sub{font-size:11px; color:var(--muted); margin-top:2px; font-weight:500;}
+  .route-card-stats{display:flex; gap:16px; padding:0 16px 14px;}
+  .stat .k{font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); font-weight:700;}
+  .stat .v{font-size:16px; font-weight:700; font-family:'JetBrains Mono',monospace; margin-top:2px;}
+  .caret{color:var(--muted); font-size:12px; transition:transform .2s;}
+  .caret.open{transform:rotate(180deg);}
+  .trip-list{border-top:1px solid var(--line); display:none;}
+  .trip-list.open{display:block;}
+  .trip-row{display:flex; justify-content:space-between; align-items:center; padding:10px 16px; font-size:13px; border-bottom:1px solid var(--line);}
+  .trip-row:last-child{border-bottom:none;}
+  .trip-row .t-left{display:flex; align-items:center; gap:8px; color:var(--muted);}
+  .trip-row .t-time{font-family:'JetBrains Mono',monospace; font-weight:600; color:var(--text);}
+  .badge-best{background:var(--amber-dim); color:var(--amber); font-size:10px; font-weight:700; padding:2px 7px; border-radius:999px; text-transform:uppercase; letter-spacing:.5px;}
+  .trip-del{color:var(--muted); background:none; font-size:16px; padding:2px 6px;}
+
+  .empty{text-align:center; padding:50px 20px; color:var(--muted);}
+  .empty .big{font-size:34px; margin-bottom:8px;}
+  .empty p{font-size:13px; line-height:1.5; margin:0;}
+
+  .legend{display:flex; flex-direction:column; gap:6px; margin-top:12px;}
+  .legend-row{display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px; background:var(--surface); border:1px solid var(--line); cursor:pointer; font-size:13px; font-weight:600;}
+  .legend-row.active{border-color:currentColor; background:var(--surface-2);}
+  .legend-row .swatch{width:10px; height:10px; border-radius:50%; flex:0 0 auto;}
+  .legend-row .lg-name{flex:1;}
+  .legend-row .lg-dist{color:var(--muted); font-family:'JetBrains Mono',monospace; font-weight:500; font-size:12px;}
+
+  .tabbar{position:fixed; bottom:0; left:0; right:0; background:var(--surface); border-top:1px solid var(--line); display:flex; max-width:480px; margin:0 auto;}
+  .tabbar-inner{display:flex; width:100%; max-width:480px; margin:0 auto;}
+  .tab{flex:1; text-align:center; padding:12px 0 10px; background:none; color:var(--muted); font-size:12px; font-weight:600; display:flex; flex-direction:column; align-items:center; gap:3px;}
+  .tab.active{color:var(--amber);}
+  .tab .icon{font-size:18px;}
+
+  .modal-backdrop{position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:flex-end; justify-content:center; z-index:3000;}
+  .modal-backdrop.open{display:flex;}
+  .modal{background:var(--surface); width:100%; max-width:480px; border-radius:18px 18px 0 0; padding:22px 18px 26px; max-height:88vh; overflow-y:auto;}
+  .modal h3{margin:0 0 14px; font-size:15px;}
+  .modal label{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; font-weight:700; display:block; margin-bottom:6px;}
+  .modal .field{margin-bottom:14px; position:relative;}
+  .modal input{width:100%; padding:12px 13px; border-radius:10px; background:var(--surface-2); border:1px solid var(--line); color:var(--text); font-size:14px;}
+  .modal input.picked{border-color:var(--good);}
+  .suggest-list{position:relative; z-index:5; margin-top:4px; border-radius:10px; overflow:hidden; background:var(--surface-2); border:1px solid var(--line); display:none;}
+  .suggest-list.open{display:block;}
+  .suggest-item{padding:10px 12px; font-size:12.5px; color:var(--text); border-bottom:1px solid var(--line); cursor:pointer;}
+  .suggest-item:last-child{border-bottom:none;}
+  .suggest-item:active{background:var(--surface);}
+  .suggest-item.loading, .suggest-item.empty{color:var(--muted);}
+  .swatch-row{display:flex; gap:8px; margin-bottom:16px;}
+  .swatch-pick{width:26px; height:26px; border-radius:50%; cursor:pointer; border:2px solid transparent;}
+  .swatch-pick.selected{border-color:var(--text);}
+  .route-preview-note{font-size:11px; color:var(--muted); margin:-6px 0 14px; line-height:1.5;}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <h1>RouteWatch</h1>
+        <div class="sub" id="header-sub">Loading…</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- TRACK VIEW -->
+  <div class="view active" id="view-track">
+    <div class="route-row" id="route-row"></div>
+
+    <div class="timer-card" id="timer-card">
+      <div class="route-label" id="timer-route-label">Pick a route to start</div>
+      <div class="timer-display mono" id="timer-display">00:00</div>
+      <div class="timer-status" id="timer-status"></div>
+
+      <div class="gapbar-wrap" id="gapbar-wrap" style="display:none;">
+        <div class="gapbar-labels">
+          <span>0:00</span>
+          <span id="gapbar-best-label">best</span>
+        </div>
+        <div class="gapbar">
+          <div class="gapbar-fill" id="gapbar-fill"></div>
+        </div>
+        <div class="gap-readout" id="gap-readout"></div>
+      </div>
+
+      <input type="text" class="note-input" id="note-input" placeholder="Add a note (traffic, weather, detour…)" style="display:none;">
+
+      <div class="btn-row">
+        <button class="btn btn-start" id="btn-start">Start trip</button>
+        <button class="btn btn-stop" id="btn-stop" style="display:none;">Stop</button>
+        <button class="btn btn-save" id="btn-save" style="display:none;">Save</button>
+        <button class="btn btn-ghost" id="btn-discard" style="display:none;">Discard</button>
+      </div>
+    </div>
+
+    <div class="map-card">
+      <div class="map-card-label"><span id="track-map-title">Route map</span><span class="dist" id="track-map-dist"></span></div>
+      <div id="track-map"></div>
+    </div>
+  </div>
+
+  <!-- MAP VIEW -->
+  <div class="view" id="view-map">
+    <div class="map-card">
+      <div class="map-card-label"><span>All routes</span></div>
+      <div id="full-map"></div>
+    </div>
+    <div class="legend" id="map-legend"></div>
+  </div>
+
+  <!-- HISTORY VIEW -->
+  <div class="view" id="view-history">
+    <div id="history-content"></div>
+  </div>
+</div>
+
+<div class="tabbar">
+  <div class="tabbar-inner">
+    <button class="tab active" data-tab="track"><span class="icon">◷</span>Track</button>
+    <button class="tab" data-tab="map"><span class="icon">📍</span>Map</button>
+    <button class="tab" data-tab="history"><span class="icon">☰</span>History</button>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal">
+    <h3>New route</h3>
+
+    <div class="field">
+      <label>Start</label>
+      <input type="text" id="origin-input" placeholder="Search an address or place…" autocomplete="off">
+      <div class="suggest-list" id="origin-suggest"></div>
+    </div>
+
+    <div class="field">
+      <label>Destination</label>
+      <input type="text" id="dest-input" placeholder="Search an address or place…" autocomplete="off">
+      <div class="suggest-list" id="dest-suggest"></div>
+    </div>
+
+    <div class="field">
+      <label>Nickname (optional)</label>
+      <input type="text" id="new-route-name" placeholder="e.g. Highway route" maxlength="40">
+    </div>
+
+    <label>Color</label>
+    <div class="swatch-row" id="swatch-row"></div>
+    <div class="route-preview-note" id="modal-note"></div>
+
+    <div class="btn-row" style="margin-top:0;">
+      <button class="btn btn-ghost" id="modal-cancel" style="flex:1;">Cancel</button>
+      <button class="btn btn-start" id="modal-create" disabled>Add route</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const COLORS = ['#4fd1c5','#f0765c','#a78bfa','#e8a33d','#61b0e0','#f0c14f','#6ee7b7','#f472b6'];
+  const KEY = 'routewatch-data';
+  let data = { routes: [], trips: [], activeSession: null };
+  let selectedRouteId = null;
+  let pickedColor = COLORS[0];
+  let tickHandle = null;
+
+  const el = id => document.getElementById(id);
+
+  function fmt(sec){
+    sec = Math.max(0, Math.round(sec));
+    const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+    if(h>0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    return `${m}:${String(s).padStart(2,'0')}`;
+  }
+  function fmtDist(meters){
+    if(!meters && meters !== 0) return '';
+    const mi = meters / 1609.34;
+    return mi < 0.1 ? `${Math.round(meters)} m` : `${mi.toFixed(1)} mi`;
+  }
+  function shortName(displayName){
+    if(!displayName) return 'Pin';
+    return displayName.split(',')[0].trim();
+  }
+
+  async function load(){
+    try{
+      const res = await window.storage.get(KEY, false);
+      if(res && res.value){
+        data = JSON.parse(res.value);
+        data.routes = data.routes || [];
+        data.trips = data.trips || [];
+      }
+    }catch(e){ /* no data yet */ }
+    if(data.routes.length === 0){ selectedRouteId = null; }
+    else if(!selectedRouteId){ selectedRouteId = data.routes[0].id; }
+  }
+  async function save(){
+    try{ await window.storage.set(KEY, JSON.stringify(data), false); }
+    catch(e){ console.error('storage save failed', e); }
+  }
+
+  function routeStats(routeId){
+    const trips = data.trips.filter(t => t.routeId === routeId).sort((a,b)=>a.duration-b.duration);
+    if(trips.length === 0) return null;
+    const best = trips[0].duration;
+    const avg = trips.reduce((s,t)=>s+t.duration,0) / trips.length;
+    const last = data.trips.filter(t=>t.routeId===routeId).sort((a,b)=>b.endTime-a.endTime)[0];
+    return { count: trips.length, best, avg, lastAt: last.endTime };
+  }
+
+  function escapeHtml(s){ const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  // ---------- chips ----------
+  function renderChips(){
+    const row = el('route-row');
+    row.innerHTML = '';
+    data.routes.forEach(r=>{
+      const chip = document.createElement('div');
+      chip.className = 'chip' + (r.id===selectedRouteId ? ' selected' : '');
+      chip.style.color = r.id===selectedRouteId ? r.color : '';
+      chip.innerHTML = `<span class="swatch" style="background:${r.color}"></span>${escapeHtml(r.name)}`;
+      chip.onclick = ()=>{ if(!data.activeSession){ selectedRouteId = r.id; renderAll(); } };
+      row.appendChild(chip);
+    });
+    const add = document.createElement('div');
+    add.className = 'chip add';
+    add.textContent = '+ New route';
+    add.onclick = openModal;
+    row.appendChild(add);
+  }
+
+  // ---------- timer ----------
+  function renderTimer(){
+    const route = data.routes.find(r=>r.id===selectedRouteId);
+    const card = el('timer-card');
+    const label = el('timer-route-label');
+    const status = el('timer-status');
+    const gapWrap = el('gapbar-wrap');
+    const noteInput = el('note-input');
+    const btnStart = el('btn-start'), btnStop = el('btn-stop'), btnSave = el('btn-save'), btnDiscard = el('btn-discard');
+
+    if(!route){
+      label.textContent = 'Add a route to get started';
+      el('timer-display').textContent = '00:00';
+      status.textContent = '';
+      gapWrap.style.display = 'none';
+      noteInput.style.display = 'none';
+      btnStart.style.display = 'block'; btnStart.disabled = true;
+      btnStop.style.display = 'none'; btnSave.style.display='none'; btnDiscard.style.display='none';
+      card.classList.remove('recording');
+      return;
+    }
+
+    label.style.color = route.color;
+    label.textContent = route.name;
+    btnStart.disabled = false;
+
+    const stats = routeStats(route.id);
+    const active = data.activeSession && data.activeSession.routeId === route.id;
+
+    if(active){
+      card.classList.add('recording');
+      const elapsed = (Date.now() - data.activeSession.startTime) / 1000;
+      el('timer-display').textContent = fmt(elapsed);
+      status.innerHTML = `<span class="pulse"></span> Recording`;
+      status.className = 'timer-status live';
+      btnStart.style.display = 'none'; btnStop.style.display = 'block';
+      btnSave.style.display = 'none'; btnDiscard.style.display = 'none'; noteInput.style.display = 'none';
+
+      if(stats){
+        gapWrap.style.display = 'block';
+        const best = stats.best;
+        const pct = Math.min(100, (elapsed / best) * 100);
+        const fill = el('gapbar-fill');
+        fill.style.width = pct + '%';
+        const diff = elapsed - best;
+        const readout = el('gap-readout');
+        if(diff <= 0){
+          fill.style.background = 'var(--good)';
+          readout.textContent = `${fmt(Math.abs(diff))} ahead of your best`;
+          readout.className = 'gap-readout ahead';
+        } else {
+          fill.style.background = 'var(--bad)';
+          readout.textContent = `${fmt(diff)} behind your best`;
+          readout.className = 'gap-readout behind';
+        }
+        el('gapbar-best-label').textContent = 'best ' + fmt(best);
+      } else { gapWrap.style.display = 'none'; }
+    } else if(data._pendingStop && data._pendingStop.routeId === route.id){
+      card.classList.remove('recording');
+      el('timer-display').textContent = fmt(data._pendingStop.duration);
+      status.textContent = 'Trip finished — save it?';
+      status.className = 'timer-status';
+      btnStart.style.display = 'none'; btnStop.style.display = 'none';
+      btnSave.style.display = 'block'; btnDiscard.style.display = 'block'; noteInput.style.display = 'block';
+
+      if(stats){
+        gapWrap.style.display = 'block';
+        const dur = data._pendingStop.duration, best = stats.best;
+        const fill = el('gapbar-fill');
+        fill.style.width = Math.min(100,(dur/best)*100) + '%';
+        const diff = dur - best;
+        const readout = el('gap-readout');
+        if(diff <= 0){
+          fill.style.background = 'var(--good)';
+          readout.textContent = diff===0 ? 'Tied your best!' : `New best — ${fmt(Math.abs(diff))} faster`;
+          readout.className = 'gap-readout ahead';
+        } else {
+          fill.style.background = 'var(--bad)';
+          readout.textContent = `${fmt(diff)} slower than your best`;
+          readout.className = 'gap-readout behind';
+        }
+        el('gapbar-best-label').textContent = 'best ' + fmt(best);
+      } else { gapWrap.style.display = 'none'; }
+    } else {
+      card.classList.remove('recording');
+      el('timer-display').textContent = '00:00';
+      if(stats){
+        status.textContent = `Best ${fmt(stats.best)} · Avg ${fmt(stats.avg)} · ${stats.count} trip${stats.count>1?'s':''}`;
+      } else { status.textContent = 'No trips recorded yet'; }
+      status.className = 'timer-status';
+      gapWrap.style.display = 'none'; noteInput.style.display = 'none';
+      btnStart.style.display = data.activeSession ? 'none' : 'block';
+      btnStart.disabled = !!data.activeSession;
+      btnStop.style.display = 'none'; btnSave.style.display = 'none'; btnDiscard.style.display = 'none';
+    }
+  }
+
+  // ---------- history ----------
+  function renderHistory(){
+    const wrap = el('history-content');
+    if(data.routes.length === 0 || data.trips.length === 0){
+      wrap.innerHTML = `<div class="empty"><div class="big">🗺️</div><p>No saved trips yet.<br>Track a trip to start building your history.</p></div>`;
+      return;
+    }
+    const summaries = data.routes.map(r => ({ route: r, stats: routeStats(r.id) })).filter(x=>x.stats);
+    let html = '';
+    if(summaries.length > 0){
+      const bestRoute = summaries.slice().sort((a,b)=>a.stats.avg-b.stats.avg)[0];
+      html += `<div class="callout">
+        <div class="k">Fastest on average</div>
+        <div class="v"><span class="swatch" style="background:${bestRoute.route.color}"></span>${escapeHtml(bestRoute.route.name)}</div>
+        <div class="d">Avg ${fmt(bestRoute.stats.avg)} over ${bestRoute.stats.count} trip${bestRoute.stats.count>1?'s':''} · Personal best ${fmt(bestRoute.stats.best)}</div>
+      </div>`;
+    }
+    summaries.sort((a,b)=>a.stats.avg-b.stats.avg).forEach(({route, stats})=>{
+      const trips = data.trips.filter(t=>t.routeId===route.id).sort((a,b)=>b.endTime-a.endTime);
+      const bestDuration = stats.best;
+      const isOpen = data._openRoute === route.id;
+      const sub = route.origin && route.destination ? `${shortName(route.origin.name)} → ${shortName(route.destination.name)}${route.distanceMeters ? ' · ' + fmtDist(route.distanceMeters) : ''}` : '';
+      html += `<div class="route-card">
+        <div class="route-card-head" data-toggle="${route.id}">
+          <div>
+            <div class="route-card-title"><span class="swatch" style="background:${route.color}"></span>${escapeHtml(route.name)}</div>
+            ${sub ? `<div class="route-card-sub">${escapeHtml(sub)}</div>` : ''}
+          </div>
+          <div class="caret ${isOpen?'open':''}">▾</div>
+        </div>
+        <div class="route-card-stats">
+          <div class="stat"><div class="k">Best</div><div class="v" style="color:${route.color}">${fmt(stats.best)}</div></div>
+          <div class="stat"><div class="k">Avg</div><div class="v">${fmt(stats.avg)}</div></div>
+          <div class="stat"><div class="k">Trips</div><div class="v">${stats.count}</div></div>
+        </div>
+        <div class="trip-list ${isOpen?'open':''}">
+          ${trips.map(t=>{
+            const isBest = t.duration === bestDuration;
+            const d = new Date(t.endTime);
+            const dateStr = d.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' · ' + d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+            return `<div class="trip-row">
+              <div class="t-left">${dateStr}${t.note ? ' · '+escapeHtml(t.note) : ''}</div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                ${isBest ? '<span class="badge-best">Best</span>' : ''}
+                <span class="t-time">${fmt(t.duration)}</span>
+                <button class="trip-del" data-del="${t.id}">✕</button>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    });
+    wrap.innerHTML = html;
+    wrap.querySelectorAll('[data-toggle]').forEach(node=>{
+      node.onclick = ()=>{
+        const id = node.getAttribute('data-toggle');
+        data._openRoute = (data._openRoute === id) ? null : id;
+        renderHistory();
+      };
+    });
+    wrap.querySelectorAll('[data-del]').forEach(node=>{
+      node.onclick = async (e)=>{
+        e.stopPropagation();
+        const id = node.getAttribute('data-del');
+        data.trips = data.trips.filter(t=>t.id!==id);
+        await save();
+        renderAll();
+      };
+    });
+  }
+
+  function renderHeader(){
+    const count = data.trips.length;
+    el('header-sub').textContent = count === 0 ? 'No trips logged' : `${count} trip${count>1?'s':''} logged across ${data.routes.length} route${data.routes.length>1?'s':''}`;
+  }
+
+  // ============ MAPS ============
+  const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+  function dotIcon(color, size, ring){
+    return L.divIcon({
+      className:'',
+      html:`<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid ${ring||'#12141c'};box-shadow:0 0 0 3px ${color}40;"></div>`,
+      iconSize:[size,size], iconAnchor:[size/2,size/2]
+    });
+  }
+  function progressIcon(color){
+    return L.divIcon({
+      className:'',
+      html:`<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2.5px solid #fff;box-shadow:0 0 0 5px ${color}55; animation:mappulse 1.2s infinite;"></div>
+            <style>@keyframes mappulse{0%,100%{transform:scale(1);}50%{transform:scale(1.25);}}</style>`,
+      iconSize:[14,14], iconAnchor:[7,7]
+    });
+  }
+
+  let trackMap, trackLayerGroup, trackProgressMarker;
+  function initTrackMap(){
+    trackMap = L.map('track-map', { zoomControl:false, attributionControl:true, dragging:true, scrollWheelZoom:false }).setView([39.5,-98.35], 4);
+    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom:19 }).addTo(trackMap);
+    trackLayerGroup = L.layerGroup().addTo(trackMap);
+  }
+
+  function renderTrackMap(fit){
+    if(fit === undefined) fit = true;
+    const route = data.routes.find(r=>r.id===selectedRouteId);
+    trackLayerGroup.clearLayers();
+    trackProgressMarker = null;
+    const distEl = el('track-map-dist');
+    const titleEl = el('track-map-title');
+
+    if(!route){ distEl.textContent=''; titleEl.textContent='Route map'; return; }
+    titleEl.textContent = route.name;
+    distEl.textContent = route.distanceMeters ? fmtDist(route.distanceMeters) + (route.durationSeconds ? ` · ~${fmt(route.durationSeconds)} typical` : '') : '';
+
+    if(route.geometry && route.geometry.length > 1){
+      const line = L.polyline(route.geometry, { color: route.color, weight: 4, opacity: 0.9 }).addTo(trackLayerGroup);
+      if(fit) trackMap.fitBounds(line.getBounds(), { padding:[24,24] });
+    }
+    if(route.origin) L.marker([route.origin.lat, route.origin.lon], { icon: dotIcon(route.color, 14) }).addTo(trackLayerGroup).bindPopup(shortName(route.origin.name));
+    if(route.destination) L.marker([route.destination.lat, route.destination.lon], { icon: dotIcon('#f3f1ea', 14, route.color) }).addTo(trackLayerGroup).bindPopup(shortName(route.destination.name));
+
+    updateTrackProgress();
+    setTimeout(()=>trackMap.invalidateSize(), 60);
+  }
+
+  function updateTrackProgress(){
+    const route = data.routes.find(r=>r.id===selectedRouteId);
+    if(!route || !route.geometry || route.geometry.length < 2) return;
+    const active = data.activeSession && data.activeSession.routeId === route.id;
+    if(!active){
+      if(trackProgressMarker){ trackLayerGroup.removeLayer(trackProgressMarker); trackProgressMarker = null; }
+      return;
+    }
+    const elapsed = (Date.now() - data.activeSession.startTime) / 1000;
+    const stats = routeStats(route.id);
+    const ref = route.durationSeconds || (stats ? stats.best : null);
+    if(!ref) return;
+    const frac = Math.max(0, Math.min(1, elapsed / ref));
+    const idx = Math.round(frac * (route.geometry.length - 1));
+    const pos = route.geometry[idx];
+    if(!trackProgressMarker){
+      trackProgressMarker = L.marker(pos, { icon: progressIcon(route.color), zIndexOffset: 1000 }).addTo(trackLayerGroup);
+    } else {
+      trackProgressMarker.setLatLng(pos);
+    }
+  }
+
+  let fullMap, fullMapInited = false, highlightedRouteId = null;
+  function initFullMap(){
+    fullMap = L.map('full-map', { zoomControl:true, attributionControl:true }).setView([39.5,-98.35], 4);
+    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom:19 }).addTo(fullMap);
+    fullMapInited = true;
+  }
+
+  function renderFullMap(){
+    if(!fullMapInited) initFullMap();
+    fullMap.eachLayer(l=>{ if(l instanceof L.Polyline || l instanceof L.Marker) fullMap.removeLayer(l); });
+
+    const routesWithGeo = data.routes.filter(r=>r.geometry && r.geometry.length>1);
+    const legend = el('map-legend');
+
+    if(routesWithGeo.length === 0){
+      legend.innerHTML = '';
+      el('full-map').querySelectorAll('.map-empty').forEach(n=>n.remove());
+      const overlay = document.createElement('div');
+      overlay.className = 'map-empty';
+      overlay.style.position='absolute';
+      return;
+    }
+
+    const allBounds = [];
+    routesWithGeo.forEach(r=>{
+      const isHi = highlightedRouteId === r.id;
+      const weight = highlightedRouteId ? (isHi ? 5 : 2) : 4;
+      const opacity = highlightedRouteId ? (isHi ? 0.95 : 0.25) : 0.85;
+      const line = L.polyline(r.geometry, { color: r.color, weight, opacity }).addTo(fullMap);
+      allBounds.push(line.getBounds());
+      if(!highlightedRouteId || isHi){
+        L.marker([r.origin.lat, r.origin.lon], { icon: dotIcon(r.color, 12) }).addTo(fullMap).bindPopup(`${shortName(r.origin.name)} <br><small>start — ${escapeHtml(r.name)}</small>`);
+        L.marker([r.destination.lat, r.destination.lon], { icon: dotIcon('#f3f1ea', 12, r.color) }).addTo(fullMap).bindPopup(`${shortName(r.destination.name)} <br><small>destination — ${escapeHtml(r.name)}</small>`);
+      }
+    });
+
+    if(highlightedRouteId){
+      const hi = routesWithGeo.find(r=>r.id===highlightedRouteId);
+      if(hi) fullMap.fitBounds(L.polyline(hi.geometry).getBounds(), { padding:[30,30] });
+    } else if(allBounds.length){
+      let combined = allBounds[0];
+      allBounds.forEach(b=>combined.extend(b));
+      fullMap.fitBounds(combined, { padding:[30,30] });
+    }
+
+    legend.innerHTML = routesWithGeo.map(r=>{
+      const stats = routeStats(r.id);
+      return `<div class="legend-row ${highlightedRouteId===r.id?'active':''}" data-legend="${r.id}" style="color:${r.color}">
+        <span class="swatch" style="background:${r.color}"></span>
+        <span class="lg-name" style="color:var(--text)">${escapeHtml(r.name)}</span>
+        <span class="lg-dist">${fmtDist(r.distanceMeters)}${stats ? ' · best '+fmt(stats.best) : ''}</span>
+      </div>`;
+    }).join('');
+    legend.querySelectorAll('[data-legend]').forEach(row=>{
+      row.onclick = ()=>{
+        const id = row.getAttribute('data-legend');
+        highlightedRouteId = (highlightedRouteId === id) ? null : id;
+        renderFullMap();
+      };
+    });
+
+    setTimeout(()=>fullMap.invalidateSize(), 60);
+  }
+
+  function renderAll(){
+    renderChips();
+    renderTimer();
+    renderHistory();
+    renderHeader();
+    if(trackMap) renderTrackMap(true);
+  }
+
+  // ---------- ticking ----------
+  function startTick(){
+    if(tickHandle) return;
+    tickHandle = setInterval(()=>{
+      if(data.activeSession){ renderTimer(); updateTrackProgress(); }
+    }, 1000);
+  }
+
+  // ---------- actions ----------
+  el('btn-start').onclick = async ()=>{
+    if(!selectedRouteId) return;
+    data.activeSession = { routeId: selectedRouteId, startTime: Date.now() };
+    data._pendingStop = null;
+    await save(); renderAll();
+  };
+  el('btn-stop').onclick = async ()=>{
+    if(!data.activeSession) return;
+    const duration = (Date.now() - data.activeSession.startTime) / 1000;
+    data._pendingStop = { routeId: data.activeSession.routeId, startTime: data.activeSession.startTime, duration };
+    data.activeSession = null;
+    await save(); renderAll();
+  };
+  el('btn-save').onclick = async ()=>{
+    const p = data._pendingStop;
+    if(!p) return;
+    const note = el('note-input').value.trim();
+    data.trips.push({ id: 't'+Date.now()+Math.random().toString(36).slice(2,7), routeId: p.routeId, duration: p.duration, startTime: p.startTime, endTime: Date.now(), note });
+    data._pendingStop = null;
+    el('note-input').value = '';
+    await save(); renderAll();
+  };
+  el('btn-discard').onclick = async ()=>{
+    data._pendingStop = null;
+    el('note-input').value = '';
+    await save(); renderAll();
+  };
+
+  // ---------- tabs ----------
+  document.querySelectorAll('.tab').forEach(tab=>{
+    tab.onclick = ()=>{
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      const which = tab.getAttribute('data-tab');
+      el('view-track').classList.toggle('active', which==='track');
+      el('view-map').classList.toggle('active', which==='map');
+      el('view-history').classList.toggle('active', which==='history');
+      if(which==='history') renderHistory();
+      if(which==='map') renderFullMap();
+      if(which==='track' && trackMap) setTimeout(()=>trackMap.invalidateSize(), 60);
+    };
+  });
+
+  // ---------- geocode search ----------
+  let originPick = null, destPick = null;
+  function wireSearch(inputId, listId, onPick){
+    const input = el(inputId), list = el(listId);
+    let timer = null;
+    input.addEventListener('input', ()=>{
+      input.classList.remove('picked');
+      onPick(null);
+      const q = input.value.trim();
+      clearTimeout(timer);
+      if(q.length < 3){ list.classList.remove('open'); list.innerHTML=''; return; }
+      list.innerHTML = '<div class="suggest-item loading">Searching…</div>';
+      list.classList.add('open');
+      timer = setTimeout(async ()=>{
+        try{
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=${encodeURIComponent(q)}`);
+          const results = await res.json();
+          if(!results.length){ list.innerHTML = '<div class="suggest-item empty">No matches — try a fuller address</div>'; return; }
+          list.innerHTML = '';
+          results.forEach(r=>{
+            const item = document.createElement('div');
+            item.className = 'suggest-item';
+            item.textContent = r.display_name;
+            item.onclick = ()=>{
+              input.value = shortName(r.display_name);
+              input.classList.add('picked');
+              list.classList.remove('open');
+              onPick({ name: r.display_name, lat: parseFloat(r.lat), lon: parseFloat(r.lon) });
+              checkModalReady();
+            };
+            list.appendChild(item);
+          });
+        }catch(e){
+          list.innerHTML = '<div class="suggest-item empty">Search unavailable — check your connection</div>';
+        }
+      }, 450);
+    });
+  }
+  wireSearch('origin-input','origin-suggest', p=>{ originPick = p; });
+  wireSearch('dest-input','dest-suggest', p=>{ destPick = p; });
+
+  function checkModalReady(){
+    el('modal-create').disabled = !(originPick && destPick);
+  }
+
+  async function fetchRouteGeometry(origin, destination){
+    try{
+      const url = `https://router.project-osrm.org/route/v1/driving/${origin.lon},${origin.lat};${destination.lon},${destination.lat}?overview=full&geometry=geojson`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if(json.code === 'Ok' && json.routes && json.routes[0]){
+        const coords = json.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+        return { geometry: coords, distanceMeters: json.routes[0].distance, durationSeconds: json.routes[0].duration, estimated:false };
+      }
+    }catch(e){ /* fall through to straight line */ }
+    const R = 6371000;
+    const toRad = d=>d*Math.PI/180;
+    const dLat = toRad(destination.lat-origin.lat), dLon = toRad(destination.lon-origin.lon);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(origin.lat))*Math.cos(toRad(destination.lat))*Math.sin(dLon/2)**2;
+    const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return { geometry: [[origin.lat,origin.lon],[destination.lat,destination.lon]], distanceMeters: dist, durationSeconds: null, estimated:true };
+  }
+
+  // ---------- modal ----------
+  function openModal(){
+    el('origin-input').value=''; el('dest-input').value=''; el('new-route-name').value='';
+    el('origin-suggest').innerHTML=''; el('origin-suggest').classList.remove('open');
+    el('dest-suggest').innerHTML=''; el('dest-suggest').classList.remove('open');
+    el('origin-input').classList.remove('picked'); el('dest-input').classList.remove('picked');
+    originPick = null; destPick = null;
+    el('modal-note').textContent = 'We will draw the real driving route between these two points on the map.';
+    pickedColor = COLORS[data.routes.length % COLORS.length];
+    const sw = el('swatch-row');
+    sw.innerHTML = '';
+    COLORS.forEach(c=>{
+      const s = document.createElement('div');
+      s.className = 'swatch-pick' + (c===pickedColor ? ' selected':'');
+      s.style.background = c;
+      s.onclick = ()=>{ pickedColor = c; sw.querySelectorAll('.swatch-pick').forEach(x=>x.classList.remove('selected')); s.classList.add('selected'); };
+      sw.appendChild(s);
+    });
+    checkModalReady();
+    el('modal-backdrop').classList.add('open');
+  }
+  el('modal-cancel').onclick = ()=> el('modal-backdrop').classList.remove('open');
+  el('modal-backdrop').onclick = (e)=>{ if(e.target.id==='modal-backdrop') el('modal-backdrop').classList.remove('open'); };
+  el('modal-create').onclick = async ()=>{
+    if(!originPick || !destPick) return;
+    const btn = el('modal-create');
+    btn.disabled = true; btn.textContent = 'Drawing route…';
+    const geo = await fetchRouteGeometry(originPick, destPick);
+    let name = el('new-route-name').value.trim();
+    if(!name) name = `${shortName(originPick.name)} → ${shortName(destPick.name)}`;
+    const route = {
+      id: 'r'+Date.now()+Math.random().toString(36).slice(2,7),
+      name, color: pickedColor, createdAt: Date.now(),
+      origin: { name: originPick.name, lat: originPick.lat, lon: originPick.lon },
+      destination: { name: destPick.name, lat: destPick.lat, lon: destPick.lon },
+      geometry: geo.geometry, distanceMeters: geo.distanceMeters, durationSeconds: geo.durationSeconds
+    };
+    data.routes.push(route);
+    selectedRouteId = route.id;
+    await save();
+    btn.disabled = false; btn.textContent = 'Add route';
+    el('modal-backdrop').classList.remove('open');
+    renderAll();
+  };
+
+  // ---------- init ----------
+  (async function init(){
+    await load();
+    initTrackMap();
+    renderAll();
+    startTick();
+  })();
+
+})();
+</script>
+</body>
+</html>
